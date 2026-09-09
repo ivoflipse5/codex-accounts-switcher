@@ -1,0 +1,8 @@
+*.zip
+*.app/
+.DS_Store
+.build/
+*.dSYM/
+.env*
+auth.json
+login-*/
