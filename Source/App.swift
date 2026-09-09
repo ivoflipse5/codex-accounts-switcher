@@ -123,7 +123,7 @@ import Combine
                     failed = true
                 }
             }
-            message = failed ? "Some usage could not be checked. Sign in again to refresh that account." : "Usage checked for both accounts."
+            message = failed ? "Some usage could not be checked. Sign in again to refresh that account." : "Usage updated."
         }
     }
 
@@ -370,16 +370,23 @@ struct AccountPanel: View {
                             Image(systemName: profile.id == model.active?.key ? "checkmark.circle.fill" : "person.crop.circle")
                                 .font(.system(size: 23)).foregroundStyle(profile.id == model.active?.key ? Color.teal : Color.secondary)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(profile.label).font(.system(size: 14, weight: .semibold))
+                                Text(profile.label).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                                 Text((try? Identity.parse(profile.auth).email) ?? "Preview account").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             }
                             VStack(alignment: .trailing, spacing: 4) {
                                 if let usage = model.accountUsage[profile.id] {
                                     ForEach(usage.windows) { window in
-                                        Text("\(window.title) · \(window.remaining)% left")
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundStyle(window.remaining < 15 ? Color.orange : Color.teal)
-                                            .help(window.resets.map { "Resets " + $0.formatted() } ?? "")
+                                        HStack(spacing: 6) {
+                                            Text("\(window.remaining)% left")
+                                                .foregroundStyle(window.remaining < 15 ? Color.orange : Color.teal)
+                                            if let reset = window.resets {
+                                                Text("↻ " + reset.formatted(.dateTime.day().month(.abbreviated)))
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        .font(.system(size: 11, weight: .medium))
+                                        .fixedSize()
+                                        .help(window.title + (window.resets.map { " · Resets " + $0.formatted() } ?? ""))
                                     }
                                 } else {
                                     Text(model.usageErrors[profile.id] ?? "Usage not checked").font(.system(size: 10)).foregroundStyle(.secondary)
@@ -398,7 +405,7 @@ struct AccountPanel: View {
                 if model.profiles.count < 2 {
                     Button { model.addAccount() } label: { Label("Add second account", systemImage: "plus") }.disabled(model.busy || model.recoveryPending || !model.vaultReady)
                 } else {
-                    Button("Sign in again to an account") { model.addAccount() }.font(.system(size: 11)).disabled(model.busy || model.recoveryPending || !model.vaultReady)
+                    Button("Sign in again") { model.addAccount() }.font(.system(size: 11)).disabled(model.busy || model.recoveryPending || !model.vaultReady)
                 }
             }
             if let code = model.loginCode {
@@ -416,7 +423,7 @@ struct AccountPanel: View {
             if model.recoveryPending { Button("Restore previous login") { model.restore() }.disabled(model.busy) }
             Divider()
             HStack {
-                Button("Check usage") { model.refreshUsage() }.disabled(model.busy || model.active == nil || !model.vaultReady)
+                Button("Refresh") { model.refreshUsage() }.disabled(model.busy || model.active == nil || !model.vaultReady)
                 Spacer()
                 Button("Open Codex") { Task { try? await model.openCodex() } }.disabled(model.busy)
                 Menu {
@@ -428,7 +435,7 @@ struct AccountPanel: View {
             }.font(.system(size: 11))
         }
         .padding(22)
-        .frame(width: 460)
+        .frame(width: 500)
     }
 }
 
@@ -499,10 +506,10 @@ struct AccountPanel: View {
         popupController?.rootView = AnyView(
             ScrollView(.vertical) {
                 AccountPanel(model: model).fixedSize(horizontal: false, vertical: true)
-            }.frame(width: 460, height: height, alignment: .top)
+            }.frame(width: 500, height: height, alignment: .top)
         )
-        popupController?.view.frame = NSRect(x: 0, y: 0, width: 460, height: height)
-        popover.contentSize = NSSize(width: 460, height: height)
+        popupController?.view.frame = NSRect(x: 0, y: 0, width: 500, height: height)
+        popover.contentSize = NSSize(width: 500, height: height)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if model?.busy == true { return .terminateCancel }
