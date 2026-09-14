@@ -20,6 +20,13 @@ import Security
         try require(deviceLoginCode(from: "Code: \u{1B}[94mABCD-12345\u{1B}[0m") == "ABCD-12345", "ANSI device code")
         try require(deviceLoginCode(from: "\u{1B}[94mABCD-") == nil, "incomplete device code")
         try require(deviceLoginCode(from: "Starting sign-in") == nil, "no device code")
+        let now = Date(timeIntervalSince1970: 1000000)
+        let mid = WeeklyPace.calculate(remaining: 60, reset: now.addingTimeInterval(302400), now: now)!
+        try require(mid.expectedUsed == 50 && !mid.overPace, "midweek pace")
+        try require(abs(mid.dailyBudget - 60 / 3.5) < 0.001, "daily budget")
+        try require(WeeklyPace.calculate(remaining: 20, reset: now.addingTimeInterval(302400), now: now)!.overPace, "over pace")
+        try require(WeeklyPace.calculate(remaining: 80, reset: now, now: now) == nil, "expired reset")
+        try require(WeeklyPace.calculate(remaining: 80, reset: now.addingTimeInterval(700000), now: now) == nil, "invalid window")
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("codex-accounts-test-" + UUID().uuidString)
         try fm.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

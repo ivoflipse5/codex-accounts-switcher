@@ -1,12 +1,12 @@
 # Codex Accounts Switcher
 
-**By Eric.** A native macOS menu-bar app to switch between two saved Codex accounts and see their usage side by side.
+**By Eric.** A native macOS menu-bar app to switch between multiple saved Codex accounts and see their usage side by side.
 
 ![Account rows with fictional usage](docs/images/01-accounts.png)
 
 ## Features
 
-- Save two ChatGPT account logins in macOS Keychain.
+- Save multiple ChatGPT account logins in macOS Keychain.
 - Check each account's usage without switching accounts.
 - Switch accounts manually and reopen Codex.
 - Keep the existing local Codex home, project files, and task history.
@@ -37,18 +37,28 @@ Move **Codex Accounts Switcher.app** to Applications and open it. The script typ
 ## Add your accounts
 
 1. Open the menu-bar app and select **Save current account**.
-2. Select **Add second account**.
+2. Select **Add account**.
 3. Copy the displayed code and select **Open OpenAI sign-in**.
-4. Sign in with your second account. If requested, enable **Device code authorization for Codex** in that account's ChatGPT security settings, cancel the old attempt, and start again for a new code.
-5. Select **Refresh** to refresh both rows. The short reset date appears beside usage when available. Hover over the value for the full reset time.
+4. Sign in with another account. If requested, enable **Device code authorization for Codex** in that account's ChatGPT security settings, cancel the old attempt, and start again for a new code.
+5. Select **Refresh** to refresh all accounts. The short reset date appears beside usage when available. Hover over the value for the full reset time.
 
-You do not need to sign out of your current Codex account to add the second account. You can rename or remove a saved login from its row menu.
+You do not need to sign out of your current Codex account to add another account. You can rename or remove a saved login from its row menu.
 
 ## Switch accounts
 
 Finish active tasks first, including CLI, IDE, and scheduled work. Select **Switch**, then confirm **Switch and reopen**. The app asks Codex to close, waits for its processes to exit, saves the latest current login, replaces the active login, and reopens Codex. It does not force-quit Codex.
 
 The app retains the existing local conversation database, sessions, projects, worktrees, skills, and configuration. It changes the active `~/.codex/auth.json`. Cloud conversations, workspace access, and connected services remain account-specific. Continuing an existing task uses the selected account for subsequent requests.
+
+## Combined weekly pace
+
+One tracker combines all saved accounts. Choose Plus, Pro 5×, or Pro 20× under each account; choices are saved locally. This is a plan-weighted estimate using weights 1, 5, and 20, not a guaranteed shared quota or message count.
+
+Each color represents an account. Solid color is used allowance; pale color is remaining allowance. The total percentage is a weighted average, so two identical plans with 80% and 100% left show 90% combined.
+
+Steady pace assumes a seven-day window ending at each account's own reset date. The daily budget sums the remaining allowance divided by the time until each reset, then expresses it as a percentage of combined capacity. Allowances remain separate and cannot transfer between accounts. Above pace means usage is more than five percentage points above the steady estimate.
+
+All accounts need a selected or detected plan and valid weekly usage before a total is shown. Expired reset dates require a refresh. Refresh confirmation appears briefly beside the button; errors remain visible.
 
 ## Privacy and credential handling
 
@@ -57,7 +67,7 @@ The app retains the existing local conversation database, sessions, projects, wo
 - Adding an account uses the official bundled Codex CLI in a separate private temporary home. The temporary folder is removed on normal completion or cancellation; a crash can leave a folder behind.
 - The app saves refreshed credentials for an already-saved active account every 60 seconds using local files. It does not renew OAuth tokens itself.
 - Usage checks send each saved account's access token directly to OpenAI at `https://chatgpt.com/backend-api/wham/usage`. Redirects are refused. This is an undocumented endpoint and can change.
-- A failed usage check shows **Usage unavailable**. Use **Sign in again** if the saved login needs renewal.
+- A failed usage check shows **Usage unavailable**. Use **Add account** if the saved login needs renewal.
 - No passwords, tokens, or raw CLI output are logged by the app.
 
 The Keychain service remains `local.eric.CodexAccounts.v1` for compatibility with the original app. The local support folder is `~/Library/Application Support/Codex Accounts/`.

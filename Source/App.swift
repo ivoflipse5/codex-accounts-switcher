@@ -8,7 +8,7 @@ import Combine
     @Published var usage: Usage?
     @Published var accountUsage: [String: Usage] = [:]
     @Published var usageErrors: [String: String] = [:]
-    @Published var message = "Save your current account, then add your second account."
+    @Published var message = "Save your current account to get started."
     @Published var busy = false
     @Published var loginCode: String?
     @Published var recoveryPending = false
@@ -22,7 +22,9 @@ import Combine
     private var loginBuffer = Data()
     private var loginTimer: Timer?
     private var snapshotTimer: Timer?
-    private var demo: Bool
+    var demo: Bool
+    @Published var refreshNotice = ""
+    private var noticeTask: Task<Void, Never>?
     var appURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") }
     var cliURL: URL? { appURL?.appendingPathComponent("Contents/Resources/codex") }
 
@@ -30,19 +32,22 @@ import Combine
         self.demo = demo
         if demo {
             func fixture(_ id: String, _ email: String) -> Data {
-                let payload = try! JSONSerialization.data(withJSONObject: ["sub": id, "email": email, "https://api.openai.com/auth": ["chatgpt_account_id": id]])
+                let payload = try! JSONSerialization.data(withJSONObject: ["sub": id, "email": email, "https://api.openai.com/auth": ["chatgpt_account_id": id, "chatgpt_plan_type": id == "demo-one" ? "Pro 20×" : id == "demo-two" ? "Pro 5×" : "Plus"]])
                 let encoded = payload.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
                 return try! JSONSerialization.data(withJSONObject: ["auth_mode": "chatgpt", "tokens": ["id_token": "demo." + encoded + ".demo", "access_token": "demo-only", "refresh_token": "demo-only", "account_id": id]])
             }
             let first = fixture("demo-one", "primary@example.com")
             let second = fixture("demo-two", "second@example.com")
             let firstID = try! Identity.parse(first).key
+            let third = fixture("demo-three", "personal@example.com")
+            let thirdID = try! Identity.parse(third).key
             let secondID = try! Identity.parse(second).key
             active = try? Identity.parse(first)
-            profiles = [Profile(id: firstID, label: "Primary", auth: first, savedAt: Date()), Profile(id: secondID, label: "Second account", auth: second, savedAt: Date())]
+            profiles = [Profile(id: firstID, label: "Primary", auth: first, savedAt: Date()), Profile(id: secondID, label: "Side projects", auth: second, savedAt: Date()), Profile(id: thirdID, label: "Personal", auth: third, savedAt: Date())]
             accountUsage = [
-                firstID: Usage(windows: [UsageWindow(id: "weekly", title: "Weekly", remaining: 24, resets: nil)], fetchedAt: Date()),
-                secondID: Usage(windows: [UsageWindow(id: "weekly", title: "Weekly", remaining: 92, resets: nil)], fetchedAt: Date())
+                firstID: Usage(windows: [UsageWindow(id: "weekly", title: "Weekly", remaining: 74, resets: Date().addingTimeInterval(4 * 86400))], fetchedAt: Date()),
+                secondID: Usage(windows: [UsageWindow(id: "weekly", title: "Weekly", remaining: 92, resets: Date().addingTimeInterval(5 * 86400))], fetchedAt: Date()),
+                thirdID: Usage(windows: [UsageWindow(id: "weekly", title: "Weekly", remaining: 65, resets: Date().addingTimeInterval(3 * 86400))], fetchedAt: Date())
             ]
             message = "Demo mode · fictional accounts and usage."
             return
@@ -54,7 +59,7 @@ import Combine
             recoveryPending = state.recovery != nil
             active = try? Identity.parse(auth.read())
             if recoveryPending { message = "A previous switch was interrupted. Restore the previous login before switching again." }
-            else if !profiles.isEmpty { message = "Ready. Finish active Codex tasks before switching." }
+            else if !profiles.isEmpty { message = "" }
         } catch { message = error.localizedDescription }
         // Capture refreshed credentials only for a profile the user has already saved.
         // No token renewal or network polling is performed by this timer.
@@ -87,8 +92,7 @@ import Combine
             next.profiles[index].savedAt = Date()
             if let label { next.profiles[index].label = label }
         } else {
-            guard next.profiles.count < 2 else { throw AppFailure("Two accounts are already saved. Remove one before adding another.") }
-            next.profiles.append(Profile(id: identity.key, label: label ?? "Second account", auth: bytes, savedAt: Date()))
+            next.profiles.append(Profile(id: identity.key, label: label ?? "Account \(next.profiles.count + 1)", auth: bytes, savedAt: Date()))
         }
         try vault.save(next)
         state = next; profiles = next.profiles
@@ -123,7 +127,13 @@ import Combine
                     failed = true
                 }
             }
-            message = failed ? "Some usage could not be checked. Sign in again to refresh that account." : "Usage updated."
+            message = failed ? "Some usage could not be checked. Use Add account to renew the login." : ""
+            refreshNotice = failed ? "Partly updated" : "Updated"
+            noticeTask?.cancel()
+            noticeTask = Task {
+                do { try await Task.sleep(nanoseconds: 3_000_000_000) } catch { return }
+                refreshNotice = ""
+            }
         }
     }
 
@@ -179,7 +189,7 @@ import Combine
         // Only expose a device code. Never display raw CLI output or tokens.
         if let code = deviceLoginCode(from: output) {
             loginCode = code
-            message = "Open OpenAI sign-in, enter this code, and select your second account."
+            message = "Open OpenAI sign-in, enter this code, and select another account."
         }
     }
     private func finishLogin(status: Int32) {
@@ -191,8 +201,8 @@ import Combine
             let identity = try Identity.parse(bytes)
             try save(bytes)
             if identity.key == active?.key {
-                message = "You signed in to the current account. Add the other account to save a second login."
-            } else { message = "Second account saved. Select Switch when you are ready." }
+                message = "Login updated for the current account."
+            } else { message = "Account saved. Select Switch when you are ready." }
         } catch { message = error.localizedDescription }
     }
     private func cleanLoginHome() {
@@ -351,7 +361,7 @@ struct AccountPanel: View {
                 Image(systemName: "person.2.circle.fill").font(.system(size: 30)).foregroundStyle(.teal)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Codex Accounts Switcher").font(.system(size: 17, weight: .semibold))
-                    Text("By Eric · Two accounts. One workspace.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("By Eric · Your accounts, one workspace.").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if model.busy { ProgressView().controlSize(.small) }
@@ -366,6 +376,7 @@ struct AccountPanel: View {
             } else {
                 VStack(spacing: 14) {
                     ForEach(model.profiles) { profile in
+                        VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
                             Image(systemName: profile.id == model.active?.key ? "checkmark.circle.fill" : "person.crop.circle")
                                 .font(.system(size: 23)).foregroundStyle(profile.id == model.active?.key ? Color.teal : Color.secondary)
@@ -400,13 +411,13 @@ struct AccountPanel: View {
                                 Button("Remove saved login") { model.remove(profile) }
                             } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize().disabled(model.busy || model.recoveryPending || !model.vaultReady)
                         }
+                        PlanSelection(profile: profile, demo: model.demo)
+                        if profile.id != model.profiles.last?.id { Divider().padding(.top, 4) }
+                        }
                     }
                 }
-                if model.profiles.count < 2 {
-                    Button { model.addAccount() } label: { Label("Add second account", systemImage: "plus") }.disabled(model.busy || model.recoveryPending || !model.vaultReady)
-                } else {
-                    Button("Sign in again") { model.addAccount() }.font(.system(size: 11)).disabled(model.busy || model.recoveryPending || !model.vaultReady)
-                }
+                CombinedPace(model: model)
+                Button { model.addAccount() } label: { Label("Add account", systemImage: "plus") }.disabled(model.busy || model.recoveryPending || !model.vaultReady)
             }
             if let code = model.loginCode {
                 VStack(alignment: .leading, spacing: 10) {
@@ -419,11 +430,12 @@ struct AccountPanel: View {
                 }
             }
             if model.signingIn { Button("Cancel sign-in") { model.cancelLogin() }.font(.caption) }
-            Text(model.message).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if !model.message.isEmpty { Text(model.message).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             if model.recoveryPending { Button("Restore previous login") { model.restore() }.disabled(model.busy) }
             Divider()
             HStack {
                 Button("Refresh") { model.refreshUsage() }.disabled(model.busy || model.active == nil || !model.vaultReady)
+                Text(model.refreshNotice).font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Open Codex") { Task { try? await model.openCodex() } }.disabled(model.busy)
                 Menu {
@@ -515,4 +527,88 @@ struct AccountPanel: View {
         if model?.busy == true { return .terminateCancel }
         return .terminateNow
     }
+}
+
+struct PlanSelection: View {
+    let profile: Profile
+    var demo = false
+    @AppStorage("pacePlanSelections") private var selections = "{}"
+    var body: some View {
+        let saved = demo ? [profile.id: ((try? Identity.parse(profile.auth).plan) ?? "Plus")] : planSelections(selections)
+        Menu {
+            ForEach(["Plus", "Pro 5×", "Pro 20×"], id: \.self) { plan in
+                Button(plan) {
+                    var values = saved; values[profile.id] = plan
+                    if let data = try? JSONEncoder().encode(values), let text = String(data: data, encoding: .utf8) { selections = text }
+                }
+            }
+        } label: { Text(saved[profile.id] ?? ((try? Identity.parse(profile.auth).plan.lowercased()) == "plus" ? "Plus" : "Choose plan")) }
+        .menuStyle(.borderlessButton).fixedSize().font(.system(size: 11)).disabled(demo)
+    }
+}
+func planSelections(_ text: String) -> [String: String] {
+    (try? JSONDecoder().decode([String: String].self, from: Data(text.utf8))) ?? [:]
+}
+struct CombinedPace: View {
+    @ObservedObject var model: AccountModel
+    @AppStorage("pacePlanSelections") private var selections = "{}"
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let saved = model.demo ? Dictionary(uniqueKeysWithValues: model.profiles.enumerated().map { ($0.element.id, $0.offset == 0 ? "Pro 20×" : $0.offset == 1 ? "Pro 5×" : "Plus") }) : planSelections(selections)
+            let entries = model.profiles.compactMap { profile -> (Profile, Double, WeeklyPace)? in
+                let plan = saved[profile.id] ?? ((try? Identity.parse(profile.auth).plan.lowercased()) == "plus" ? "Plus" : "")
+                let weight: Double = plan == "Plus" ? 1 : plan == "Pro 5×" ? 5 : plan == "Pro 20×" ? 20 : 0
+                guard weight > 0, let week = model.accountUsage[profile.id]?.windows.first(where: { $0.title == "Weekly" }), let reset = week.resets,
+                      let pace = WeeklyPace.calculate(remaining: week.remaining, reset: reset, now: context.date) else { return nil }
+                return (profile, weight, pace)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Combined weekly pace").font(.system(size: 13, weight: .semibold))
+                if !entries.isEmpty && entries.count == model.profiles.count {
+                    let total = entries.reduce(0) { $0 + $1.1 }
+                    let used = entries.reduce(0) { $0 + $1.1 * $1.2.used } / total
+                    let expected = entries.reduce(0) { $0 + $1.1 * $1.2.expectedUsed } / total
+                    let budget = entries.reduce(0) { $0 + $1.1 * $1.2.dailyBudget } / total
+                    HStack {
+                        Text(String(format: "%.0f%% left", 100 - used)).font(.system(size: 20, weight: .semibold))
+                        Spacer()
+                        Text(used > expected + 5 ? "Above pace" : "On track").foregroundStyle(used > expected + 5 ? Color.orange : Color.teal)
+                    }
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            HStack(spacing: 0) {
+                                ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                                    let color = accountColor(index)
+                                    ZStack(alignment: .leading) {
+                                        Rectangle().fill(color.opacity(0.18))
+                                        Rectangle().fill(color).frame(width: geometry.size.width * entry.1 / total * entry.2.used / 100)
+                                    }.frame(width: geometry.size.width * entry.1 / total)
+                                }
+                            }.clipShape(Capsule())
+                        }
+                    }.frame(height: 10)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                            HStack(spacing: 4) {
+                                Circle().fill(accountColor(index)).frame(width: 7, height: 7)
+                                Text(entry.0.label)
+                            }
+                        }
+                        Spacer()
+                        Text(String(format: "%.1f%% / day budget", budget))
+                    }
+                    Text(String(format: "%.0f%% used · %.0f%% at steady pace", used, expected)).foregroundStyle(.secondary)
+                    Text("Solid = used · pale = left · plan-weighted estimate").font(.system(size: 10)).foregroundStyle(.secondary)
+                } else {
+                    Text("Choose account plans and refresh usage to see the total.").foregroundStyle(.secondary)
+                }
+            }.font(.system(size: 11)).padding(.vertical, 6)
+            .help("Combined estimate weighted by Plus 1×, Pro 5× and Pro 20×. Each account keeps its own reset date. Allowances cannot transfer between accounts; the daily budget sums each account's remaining allowance divided by its time to reset.")
+        }
+    }
+}
+
+func accountColor(_ index: Int) -> Color {
+    let colors: [Color] = [.teal, .indigo, .orange, .pink, .blue, .green]
+    return colors[index % colors.count]
 }

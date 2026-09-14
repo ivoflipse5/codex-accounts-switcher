@@ -207,3 +207,16 @@ func deviceLoginCode(from output: String) -> String? {
     guard let match = plain.range(of: "\\b[A-Z0-9]{4,6}-[A-Z0-9]{4,6}\\b", options: .regularExpression) else { return nil }
     return String(plain[match])
 }
+
+struct WeeklyPace {
+    let used: Double
+    let expectedUsed: Double
+    let dailyBudget: Double
+    var overPace: Bool { used > expectedUsed + 5 }
+    static func calculate(remaining: Int, reset: Date, now: Date) -> WeeklyPace? {
+        let left = reset.timeIntervalSince(now)
+        guard left > 0, left <= 604800 else { return nil }
+        let remaining = Double(max(0, min(100, remaining)))
+        return WeeklyPace(used: 100 - remaining, expectedUsed: 100 * (1 - left / 604800), dailyBudget: min(remaining, remaining / (left / 86400)))
+    }
+}
